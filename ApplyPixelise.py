@@ -54,11 +54,9 @@ def pixelate_image(    img_array,
         chunk = blocks[i:i + chunk_rows]
 
         if method == "mean":
-            colors[i:i + chunk_rows] = chunk.mean(dim=2, keepdim=True)
+            colors[i:i + chunk_rows] = (chunk.float().mean(dim=2, keepdim=True).round().clamp(0, 255).to(torch.uint8) )
         else:
-            colors[i:i + chunk_rows] = torch.mode(
-                chunk, dim=2, keepdim=True
-            ).values
+            colors[i:i + chunk_rows] = torch.mode(chunk, dim=2, keepdim=True).values
 
     output = (
         colors.expand(-1, -1, b * b, -1)
