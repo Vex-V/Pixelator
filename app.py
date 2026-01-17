@@ -21,8 +21,8 @@ def load_palettes(filepath="palettes.json"):
         return json.load(f)
 
 # --- UI Configuration ---
-st.set_page_config(page_title="Pixel Art Studio", layout="wide")
-st.title("🎨 Pixel Art Studio")
+st.set_page_config(page_title="Pixelator", layout="wide")
+st.title("Pixelator")
 
 palettes_data = load_palettes()
 

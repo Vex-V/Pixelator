@@ -1,7 +1,7 @@
 import numpy as np
 from PIL import Image, ImageFilter
-from scipy import stats
 from tqdm import tqdm
+import torch
 
 
 
@@ -20,38 +20,56 @@ def pad_image_to_block(img_array: np.ndarray, block_size: int) -> np.ndarray:
         mode="edge"
     )
 
+def pixelate_image(    img_array,
+    block_size,
+    method="mode",
 
-def pixelate_image(
-    img_array: np.ndarray,
-    block_size: int,
-    method: str = "mode"
-) -> np.ndarray:
-    """
-    Downscale then upscale image using block-wise mean or mode.
-    """
-    h, w, c = img_array.shape
+):
+    device="cuda"
+    chunk_rows=64
+
+    img = torch.from_numpy(img_array).to(device)
+    H, W, C = img.shape
     b = block_size
-    output = np.zeros_like(img_array)
 
-    num_vertical_blocks = h // b
+    Hc = H // b * b
+    Wc = W // b * b
+    img = img[:Hc, :Wc]
 
-    for i in tqdm(range(num_vertical_blocks), desc="Pixelating", unit="row"):
-        y0, y1 = i * b, (i + 1) * b
-        row_strip = img_array[y0:y1]
+    blocks = img.view(Hc // b, b, Wc // b, b, C)
+    blocks = blocks.permute(0, 2, 1, 3, 4)
+    blocks = blocks.reshape(Hc // b, Wc // b, b * b, C)
 
-        blocks = row_strip.reshape(1, b, w // b, b, c).transpose(0, 2, 1, 3, 4)
-        flat = blocks.reshape(1, w // b, -1, c)
+    colors = torch.empty(
+        (Hc // b, Wc // b, 1, C),
+        device=device,
+        dtype=img.dtype
+    )
 
-        if method.lower() == "mean":
-            colors = flat.mean(axis=2, keepdims=True)
+    for i in tqdm(
+        range(0, Hc // b, chunk_rows),
+        desc="Pixelating",
+        unit="chunk"
+    ):
+        chunk = blocks[i:i + chunk_rows]
+
+        if method == "mean":
+            colors[i:i + chunk_rows] = chunk.mean(dim=2, keepdim=True)
         else:
-            colors = stats.mode(flat, axis=2, keepdims=True).mode
+            colors[i:i + chunk_rows] = torch.mode(
+                chunk, dim=2, keepdim=True
+            ).values
 
-        expanded = np.broadcast_to(colors[:, :, None, :], blocks.shape)
-        output[y0:y1] = expanded.transpose(0, 2, 1, 3, 4).reshape(b, w, c)
+    output = (
+        colors.expand(-1, -1, b * b, -1)
+        .reshape(Hc // b, Wc // b, b, b, C)
+        .permute(0, 2, 1, 3, 4)
+        .reshape(Hc, Wc, C)
+    )
 
-    return output
-
+    result = img_array.copy()
+    result[:Hc, :Wc] = output.cpu().numpy()
+    return result
 
 def extract_pixelated_edges(
     img_array: np.ndarray,
@@ -147,7 +165,7 @@ def create_pixelated(
     return_debug_edges: bool = False
     edge_threshold: int = 40,
     density_threshold: float = 0.15,
-    dither_strength= 50
+
     padded = pad_image_to_block(img_array, block_size)
     pixelated = pixelate_image(padded, block_size, method)
 
