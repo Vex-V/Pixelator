@@ -5,7 +5,7 @@ Turns an image into pixel art.
 ## Run
 
 ```
-pip install streamlit numpy pillow tqdm
+pip install -r requirements.txt
 streamlit run app.py
 ```
 
