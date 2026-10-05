@@ -1,7 +1,6 @@
 import numpy as np
 from PIL import Image, ImageFilter
 from tqdm import tqdm
-import torch
 
 
 
@@ -25,49 +24,62 @@ def pixelate_image(    img_array,
     method="mode",
 
 ):
-    device="cuda"
-    chunk_rows=64
+    chunk_rows = 64
 
-    img = torch.from_numpy(img_array).to(device)
-    H, W, C = img.shape
+    H, W, C = img_array.shape
     b = block_size
 
     Hc = H // b * b
     Wc = W // b * b
-    img = img[:Hc, :Wc]
+    img = img_array[:Hc, :Wc]
 
-    blocks = img.view(Hc // b, b, Wc // b, b, C)
-    blocks = blocks.permute(0, 2, 1, 3, 4)
-    blocks = blocks.reshape(Hc // b, Wc // b, b * b, C)
-
-    colors = torch.empty(
-        (Hc // b, Wc // b, 1, C),
-        device=device,
-        dtype=img.dtype
-    )
+    colors = np.empty((Hc // b, Wc // b, C), dtype=img_array.dtype)
 
     for i in tqdm(
         range(0, Hc // b, chunk_rows),
         desc="Pixelating",
         unit="chunk"
     ):
-        chunk = blocks[i:i + chunk_rows]
+        rows = img[i * b:(i + chunk_rows) * b]
+        nb_h = rows.shape[0] // b
+        blocks = rows.reshape(nb_h, b, Wc // b, b, C)
 
         if method == "mean":
-            colors[i:i + chunk_rows] = (chunk.float().mean(dim=2, keepdim=True).round().clamp(0, 255).to(torch.uint8) )
+            colors[i:i + nb_h] = blocks.mean(axis=(1, 3)).round().clip(0, 255)
         else:
-            colors[i:i + chunk_rows] = torch.mode(chunk, dim=2, keepdim=True).values
+            colors[i:i + nb_h] = _block_mode(blocks)
 
-    output = (
-        colors.expand(-1, -1, b * b, -1)
-        .reshape(Hc // b, Wc // b, b, b, C)
-        .permute(0, 2, 1, 3, 4)
-        .reshape(Hc, Wc, C)
-    )
+    output = np.repeat(np.repeat(colors, b, axis=0), b, axis=1)
 
     result = img_array.copy()
-    result[:Hc, :Wc] = output.cpu().numpy()
+    result[:Hc, :Wc] = output
     return result
+
+
+def _block_mode(blocks: np.ndarray) -> np.ndarray:
+    """
+    Most common whole color (not per-channel) in each block.
+    blocks: (nb_h, b, nb_w, b, C) uint8 -> (nb_h, nb_w, C)
+    """
+    nb_h, b, nb_w, _, C = blocks.shape
+    flat = blocks.transpose(0, 2, 1, 3, 4).reshape(nb_h * nb_w, b * b, C)
+
+    packed = np.zeros(flat.shape[:2], dtype=np.int64)
+    for c in range(C):
+        packed = (packed << 8) | flat[..., c]
+
+    s = np.sort(packed, axis=1)
+    pos = np.arange(s.shape[1])
+    new_run = np.ones(s.shape, dtype=bool)
+    new_run[:, 1:] = s[:, 1:] != s[:, :-1]
+    run_start = np.maximum.accumulate(np.where(new_run, pos, 0), axis=1)
+    best = np.argmax(pos - run_start, axis=1)
+    mode = s[np.arange(s.shape[0]), best]
+
+    out = np.empty((mode.shape[0], C), dtype=np.uint8)
+    for c in range(C):
+        out[:, C - 1 - c] = (mode >> (8 * c)) & 0xFF
+    return out.reshape(nb_h, nb_w, C)
 
 def extract_pixelated_edges(
     img_array: np.ndarray,
@@ -159,10 +171,10 @@ def create_pixelated(
     np.ndarray or (np.ndarray, PIL.Image)
         Final pixelated image (and optional debug edge image)
     """
-    edge_color=(0, 0, 0),
-    return_debug_edges: bool = False
-    edge_threshold: int = 40,
-    density_threshold: float = 0.15,
+    edge_color = (0, 0, 0)
+    return_debug_edges = False
+    edge_threshold = 40
+    density_threshold = 0.15
 
     padded = pad_image_to_block(img_array, block_size)
     pixelated = pixelate_image(padded, block_size, method)

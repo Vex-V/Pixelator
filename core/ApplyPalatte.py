@@ -1,5 +1,4 @@
 import json
-import torch
 from tqdm import tqdm
 import numpy as np
 from pathlib import Path
@@ -27,7 +26,6 @@ def apply_palette(
     img_array: np.ndarray,
     palette: str,
     chunk_size: int = 64,
-    device: str | None = None,
 ):
     """
     Map an image array to the closest colors in a given palette.
@@ -35,31 +33,28 @@ def apply_palette(
     Args:
         img_array: (H, W, 3) uint8 or float array
         palette: palette name
-        palettes_path: path to palettes.json
         chunk_size: vertical chunk size
-        device: "cuda", "cpu", or None (auto)
 
     Returns:
         (H, W, 3) uint8 numpy array
     """
     if img_array.shape[-1] == 4:
-        img_array = img_array[:, :, :3] 
+        img_array = img_array[:, :, :3]
 
-    img = torch.as_tensor(img_array, dtype=torch.float32, device=device)
-    palettes_path="palettes.json"
-    palettes = load_palettes(palettes_path)
+    palettes = load_palettes("palettes.json")
 
     if palette not in palettes:
-        print(f"palette '{palette}' not found. Defaulting to '16bit'.")
-        palette = "16bit"
+        fallback = next(iter(palettes))
+        print(f"palette '{palette}' not found. Defaulting to '{fallback}'.")
+        palette = fallback
 
-    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-
-    img = torch.as_tensor(img_array, dtype=torch.float32, device=device)
-    palette = torch.tensor(palettes[palette], dtype=torch.float32, device=device)
+    img = img_array.astype(np.float32)
+    pal = np.array(palettes[palette], dtype=np.float32)
+    pal_u8 = pal.astype(np.uint8)
+    pal_sq = (pal * pal).sum(axis=1)
 
     H, W, _ = img.shape
-    output = torch.empty((H, W, 3), dtype=torch.uint8, device=device)
+    output = np.empty((H, W, 3), dtype=np.uint8)
 
     num_chunks = (H + chunk_size - 1) // chunk_size
 
@@ -67,14 +62,11 @@ def apply_palette(
         y0 = i * chunk_size
         y1 = min(y0 + chunk_size, H)
 
-        chunk = img[y0:y1] 
+        # |x-p|^2 = |x|^2 - 2x.p + |p|^2; |x|^2 is constant per pixel, so drop it
+        pixels = img[y0:y1].reshape(-1, 3)
+        closest = np.argmin(pal_sq - 2 * pixels @ pal.T, axis=1)
+        output[y0:y1] = pal_u8[closest].reshape(y1 - y0, W, 3)
 
-        diff = chunk[:, :, None, :] - palette[None, None, :, :]
-        distances = torch.linalg.norm(diff, dim=3)
-
-        closest = torch.argmin(distances, dim=2)
-        output[y0:y1] = palette[closest].to(torch.uint8)
-
-    return output.cpu().numpy()
+    return output
 
 

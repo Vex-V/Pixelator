@@ -5,7 +5,7 @@ import json
 import os
 from io import BytesIO
 
-# --- Import the function from Pixelate.py ---
+
 try:
     from Pixelate import pixelate
 except ImportError as e:
@@ -113,7 +113,7 @@ if uploaded_file:
                 use_container_width=True
             )
         else:
-            st.info("Click 'Process Pixelation' to generate the base image.")
+            st.info("Click 'Run' to generate the base image.")
 else:
     st.session_state.processed_img = None
     st.info("Please upload an image.")

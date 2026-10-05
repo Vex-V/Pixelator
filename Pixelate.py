@@ -1,5 +1,5 @@
-from ApplyPalatte import apply_palette
-from ApplyPixelise import create_pixelated
+from core.ApplyPalatte import apply_palette
+from core.ApplyPixelise import create_pixelated
 
 import numpy as np
 from PIL import Image
