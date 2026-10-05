@@ -21,10 +21,10 @@ Code is in `core/`: `ApplyPalatte.py` does step 1, `ApplyPixelise.py` does steps
 
 ## Mean vs mode
 
-Both decide which colour a block gets.
+Decide which colour a block gets.
 
-- **mode:** the most common colour in the block. The colour is always one from the palette. Keeps colours sharp.
-- **mean:** the average colour of the block. Blends colours, so it can produce colours that are not in the palette.
+- **mode:** the most common colour in the block. The colour is always one from the original palette. Keeps colours sharp.
+- **mean:** the average colour of the block. Blends colours, so it can produce colours that are not in the original palette.
 
 ## Settings
 
